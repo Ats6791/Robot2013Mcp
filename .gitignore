@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Backup files
+*.bak
+
+# Claude Code local settings
+.claude/
+
+# MCP local config (contains machine-specific paths)
+.mcp.json

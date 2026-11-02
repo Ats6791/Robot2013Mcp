@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "robot2013": {
+      "command": "python",
+      "args": ["C:/path/to/RobotMcpPy/server.py"],
+      "description": "Autodesk Robot Structural Analysis 2013 MCP Server — requires Robot 2013 installed and running on Windows"
+    }
+  }
+}

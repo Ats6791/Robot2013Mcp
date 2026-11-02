@@ -1,0 +1,24 @@
+{
+  "manifest_version": "0.3",
+  "name": "robot2013-mcp",
+  "display_name": "Robot 2013 MCP",
+  "version": "1.0.0",
+  "description": "Autodesk Robot Structural Analysis 2013 — Python MCP server. Tools for modelling (nodes, bars, panels, sections, materials, supports), load cases, static/modal analysis, results (displacements, bar forces, reactions) and project management. Connects via COM (win32com) to Robot running on the same Windows PC.",
+  "author": {
+    "name": "RobotMcp"
+  },
+  "server": {
+    "type": "python",
+    "entry_point": "server.py",
+    "mcp_config": {
+      "command": "python",
+      "args": ["${__dirname}/server.py"]
+    }
+  },
+  "compatibility": {
+    "platforms": ["win32"],
+    "runtimes": {
+      "python": ">=3.10.0"
+    }
+  }
+}
