@@ -57,9 +57,9 @@ def serialise_tools() -> list[dict]:
             "name": t.name,
             "description": t.description or "",
         }
-        if hasattr(t, "inputSchema") and t.inputSchema is not None:
-            schema = t.inputSchema
-            # Accept both dict and pydantic model
+        # Handle different MCP SDK versions: inputSchema vs input_schema
+        schema = getattr(t, "inputSchema", None) or getattr(t, "input_schema", None)
+        if schema is not None:
             if hasattr(schema, "model_dump"):
                 schema = schema.model_dump(exclude_none=True)
             elif hasattr(schema, "dict"):
@@ -120,6 +120,14 @@ async def dispatch(req: dict) -> None:
             return
 
         handler = HANDLERS[name]
+        # Safety net: if a client serialised an array/object as a JSON string,
+        # parse it back so handlers always receive the correct Python type.
+        for _k, _v in list(args.items()):
+            if isinstance(_v, str) and len(_v) > 1 and _v[0] in ("[", "{"):
+                try:
+                    args[_k] = json.loads(_v)
+                except Exception:
+                    pass
         try:
             data = await handler(args)  # type: ignore[operator]
             send_result(req_id, {

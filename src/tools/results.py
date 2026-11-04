@@ -215,18 +215,18 @@ def _parse_id_list(text: str, obj_type: str, struc: object) -> list[int]:
         server = {"node": struc.Nodes, "bar": struc.Bars, "case": struc.Cases}.get(obj_type)
         if server is None:
             return []
-        count = server.Count
-        ids: list[int] = []
-        i = 0
-        # IDs may be non-contiguous; scan until we have found `count` objects
-        while len(ids) < count and i < count + 100000:
-            i += 1
-            try:
-                if server.Exist(i):
-                    ids.append(i)
-            except Exception:
-                continue
-        return ids
+        # Robot 2013: servers have no .Count — use GetAll().Count
+        try:
+            coll = server.GetAll()
+            ids: list[int] = []
+            for i in range(1, int(coll.Count) + 1):
+                try:
+                    ids.append(int(coll.Get(i).Number))
+                except Exception:
+                    continue
+            return ids
+        except Exception:
+            return []
     return r.ids_from_selection(str(text), obj_type)
 
 
@@ -241,13 +241,17 @@ def _positions(args: dict, default: list[float]) -> list[float]:
 def _supported_nodes(struc: object) -> list[int]:
     from ..robot_client import I_LT_NODE_SUPPORT
     out: list[int] = []
-    for nid in _parse_id_list("all", "node", struc):
-        try:
-            node = struc.Nodes.Get(nid)
-            if node.HasLabel(I_LT_NODE_SUPPORT):
-                out.append(nid)
-        except Exception:
-            continue
+    try:
+        coll = struc.Nodes.GetAll()
+        for i in range(1, int(coll.Count) + 1):
+            try:
+                node = coll.Get(i)
+                if node.HasLabel(I_LT_NODE_SUPPORT):
+                    out.append(int(node.Number))
+            except Exception:
+                continue
+    except Exception:
+        pass
     return out
 
 

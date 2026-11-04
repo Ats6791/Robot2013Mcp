@@ -2,6 +2,7 @@
 Load tools — cases, nodal forces, bar loads, self-weight, combinations.
 """
 from __future__ import annotations
+import win32com.client
 from mcp.types import Tool
 from ..robot_client import (
     robot,
@@ -179,7 +180,56 @@ TOOLS: list[Tool] = [
             },
         },
     ),
+    Tool(
+        name="robot_add_panel_uniform",
+        description=(
+            "Add a uniform surface load on panels (kN/m²). "
+            "pz = pressure in kN/m² (negative = downward). "
+            "Uses I_LRT_UNIFORM surface load record."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["caseId", "selection", "pz"],
+            "properties": {
+                "caseId":    {"type": "integer"},
+                "selection": {"type": "string", "description": "Panel selection (e.g. '9' or '9to15')"},
+                "pz":        {"type": "number", "description": "kN/m² (negative = downward)"},
+                "local":     {"type": "boolean", "description": "Apply in local panel axes (default false)"},
+            },
+        },
+    ),
 ]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────
+
+def _get_case_with_records(cases_server, cid: int):
+    """Return a case proxy that exposes .Records (IRobotSimpleCase).
+
+    CaseServer.Get(id) always returns IRobotCase (no .Records).
+    Iterating GetAll() returns late-bound IDispatch proxies; we use
+    CastTo to QI to IRobotSimpleCase so .Records becomes available.
+    """
+    coll = cases_server.GetAll()
+    n = int(coll.Count)
+    for i in range(1, n + 1):
+        try:
+            proxy = coll.Get(i)
+            try:
+                num = int(proxy.Number)
+            except Exception:
+                num = i
+            if num != cid:
+                continue
+            try:
+                return win32com.client.CastTo(proxy, "IRobotSimpleCase")
+            except Exception:
+                return proxy  # late-bound fallback; .Records may still work
+        except Exception:
+            continue
+    return None
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -205,7 +255,8 @@ async def handle_robot_add_nodal_load(args: dict) -> dict:
     sel_text = args["selection"]
     r = robot()
 
-    case = r.structure().Cases.Get(cid)
+    struc = r.structure()
+    case = _get_case_with_records(struc.Cases, cid)
     if case is None:
         raise ValueError(f"Case {cid} not found")
 
@@ -232,7 +283,8 @@ async def handle_robot_add_bar_uniform(args: dict) -> dict:
     sel_text = args["selection"]
     r = robot()
 
-    case = r.structure().Cases.Get(cid)
+    struc = r.structure()
+    case = _get_case_with_records(struc.Cases, cid)
     if case is None:
         raise ValueError(f"Case {cid} not found")
 
@@ -260,7 +312,8 @@ async def handle_robot_add_bar_point(args: dict) -> dict:
     sel_text = args["selection"]
     r = robot()
 
-    case = r.structure().Cases.Get(cid)
+    struc = r.structure()
+    case = _get_case_with_records(struc.Cases, cid)
     if case is None:
         raise ValueError(f"Case {cid} not found")
 
@@ -291,7 +344,8 @@ async def handle_robot_add_bar_trapezoidal(args: dict) -> dict:
     sel_text = args["selection"]
     r = robot()
 
-    case = r.structure().Cases.Get(cid)
+    struc = r.structure()
+    case = _get_case_with_records(struc.Cases, cid)
     if case is None:
         raise ValueError(f"Case {cid} not found")
 
@@ -314,7 +368,8 @@ async def handle_robot_add_self_weight(args: dict) -> dict:
     cid = int(args["caseId"])
     r = robot()
 
-    case = r.structure().Cases.Get(cid)
+    struc = r.structure()
+    case = _get_case_with_records(struc.Cases, cid)
     if case is None:
         raise ValueError(f"Case {cid} not found")
 
@@ -398,7 +453,8 @@ async def handle_robot_delete_case(args: dict) -> dict:
 
 async def handle_robot_delete_load_records(args: dict) -> dict:
     cid = int(args["caseId"])
-    case = robot().structure().Cases.Get(cid)
+    struc = robot().structure()
+    case = _get_case_with_records(struc.Cases, cid)
     if case is None:
         raise ValueError(f"Case {cid} not found")
 
@@ -427,6 +483,36 @@ async def handle_robot_delete_load_records(args: dict) -> dict:
         return {"deleted": count, "caseId": cid}
 
 
+async def handle_robot_add_panel_uniform(args: dict) -> dict:
+    cid = int(args["caseId"])
+    sel_text = args["selection"]
+    r = robot()
+
+    struc = r.structure()
+    case = _get_case_with_records(struc.Cases, cid)
+    if case is None:
+        raise ValueError(f"Case {cid} not found")
+
+    # I_LRT_UNIFORM = 9 (body force / surface load on panels)
+    I_LRT_UNIFORM = 9
+    rec = case.Records.Create(I_LRT_UNIFORM)
+    rec.Objects.FromText(sel_text)
+
+    pz = float(args["pz"])
+    # Surface load: SetValue(2, pz_N_m2) for Z direction
+    try:
+        rec.SetValue(2, pz * 1000.0)   # kN/m² -> N/m²
+    except Exception:
+        pass
+
+    local = args.get("local", False)
+    if local:
+        try: rec.SetValue(6, 1)
+        except Exception: pass
+
+    return {"added": True, "caseId": cid, "selection": sel_text, "pz": pz}
+
+
 HANDLERS: dict[str, object] = {
     "robot_create_case":           handle_robot_create_case,
     "robot_add_nodal_load":        handle_robot_add_nodal_load,
@@ -437,4 +523,5 @@ HANDLERS: dict[str, object] = {
     "robot_create_combination":    handle_robot_create_combination,
     "robot_delete_case":           handle_robot_delete_case,
     "robot_delete_load_records":   handle_robot_delete_load_records,
+    "robot_add_panel_uniform":     handle_robot_add_panel_uniform,
 }

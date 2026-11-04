@@ -110,20 +110,21 @@ async def handle_robot_mesh_panels(args: dict) -> dict:
             pass
 
         panels = struc.Objects
-        count = panels.Count
-        for i in range(1, count + 5000):
-            try:
-                if not panels.Exist(i): continue
-                panel = panels.Get(i)
+        try:
+            coll = panels.GetAll()
+            for _i in range(1, int(coll.Count) + 1):
                 try:
-                    mesh = panel.FiniteElems
-                    if mesh is not None:
-                        mesh.Generate(size)
+                    panel = coll.Get(_i)
+                    try:
+                        mesh = panel.FiniteElems
+                        if mesh is not None:
+                            mesh.Generate(size)
+                    except Exception:
+                        pass
                 except Exception:
-                    pass
-                if i >= count: break
-            except Exception:
-                continue
+                    continue
+        except Exception:
+            pass
 
         # Fallback: trigger via GenerateModel
         calc.GenerateModel()
@@ -153,7 +154,7 @@ async def handle_robot_analysis_status(args: dict) -> dict:
 
     # Case count
     try:
-        status["casesCount"] = struc.Cases.Count
+        status["casesCount"] = int(struc.Cases.GetAll().Count)
     except Exception:
         pass
 

@@ -27,6 +27,30 @@ def _is_robot_running() -> bool:
         return False
 
 
+def _parse_id_text(text: str) -> list[int]:
+    """Parse a Robot selection string into a sorted list of integers.
+
+    Handles: '1 2 5', '1to10', '1to20by2', '1,2,5'.
+    Returns [] for 'all' — the caller must handle that case separately.
+    """
+    import re
+    if str(text).strip().lower() == "all":
+        return []
+    ids: list[int] = []
+    for token in re.split(r"[\s,]+", str(text).strip()):
+        token = token.strip()
+        if not token:
+            continue
+        m = re.match(r"^(\d+)to(\d+)(?:by(\d+))?$", token, re.IGNORECASE)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            step = int(m.group(3)) if m.group(3) else 1
+            ids.extend(range(a, b + 1, step))
+        elif re.match(r"^\d+$", token):
+            ids.append(int(token))
+    return sorted(set(ids))
+
+
 def _server_count(server: Any) -> int:
     """Return element count for a Robot 2013 object server.
 
@@ -72,26 +96,27 @@ PROJECT_TYPES: dict[str, int] = {
 }
 PROJECT_TYPES_INV: dict[int, str] = {v: k for k, v in PROJECT_TYPES.items()}
 
-# IRobotLabelType
-I_LT_NODE_SUPPORT    = 2
+# IRobotLabelType  (confirmed against Robot 2013 typelib gen_py F3A37BD0-AA2D-11D2-9844-0080C86BE4DF)
+I_LT_NODE_SUPPORT    = 0   # typelib: I_LT_NODE_SUPPORT=0  (was 2, wrong)
 I_LT_NODE_MASS       = 3
+I_LT_BAR_SECTION     = 3   # same value as NODE_MASS; Robot distinguishes by context
 I_LT_BAR_CABLE       = 7
+I_LT_BAR_RELEASE     = 4   # typelib: I_LT_BAR_RELEASE=4   (was 25, wrong)
+I_LT_BAR_MATERIAL    = 8   # typelib: I_LT_BAR_MATERIAL=8  (was 20, wrong)
 I_LT_BAR_OFFSET      = 9
-I_LT_BAR_MEMBER_TYPE = 11
-I_LT_THICKNESS       = 17
-I_LT_BAR_MATERIAL    = 20
+I_LT_PANEL_THICKNESS = 11  # IRobotThicknessData — was 17 (I_LT_VEHICLE, wrong!)
 I_LT_EDGE_SUPPORT    = 22
-I_LT_BAR_SECTION     = 3
-I_LT_BAR_RELEASE     = 25
 I_LT_PANEL_RL_TYPE   = 40
+
+# Legacy alias kept for any external code that might reference it
+I_LT_THICKNESS = I_LT_PANEL_THICKNESS
 
 LABEL_TYPES: dict[str, int] = {
     "support":       I_LT_NODE_SUPPORT,
     "node_mass":     I_LT_NODE_MASS,
     "cable":         I_LT_BAR_CABLE,
     "offset":        I_LT_BAR_OFFSET,
-    "member_type":   I_LT_BAR_MEMBER_TYPE,
-    "thickness":     I_LT_THICKNESS,
+    "thickness":     I_LT_PANEL_THICKNESS,
     "material":      I_LT_BAR_MATERIAL,
     "edge_support":  I_LT_EDGE_SUPPORT,
     "section":       I_LT_BAR_SECTION,
@@ -165,12 +190,53 @@ ANALYSIS_TYPES: dict[str, int] = {
 I_CBT_ULS = 0; I_CBT_SLS = 1; I_CBT_ACC = 2
 
 # IRobotBarSectionType (shape)
-I_BST_NS_RECT  = 1
-I_BST_NS_BOX   = 5
-I_BST_NS_I     = 7
-I_BST_NS_T     = 9
-I_BST_NS_C     = 13
-I_BST_NS_TUBE  = 18
+I_BST_NS_BOX   = 1    # hollow box          (typelib IRobotBarSectionType confirmed)
+I_BST_NS_I     = 2    # I-beam
+I_BST_NS_TUBE  = 4    # circular tube
+I_BST_NS_RECT  = 5    # solid rectangle (steel solid or concrete via ShapeType)
+I_BST_NS_C     = 6    # channel (C-section)
+I_BST_NS_T     = 11   # T-section
+
+# IRobotBarSectionShapeType — concrete section identifiers (negative values, typelib confirmed)
+I_BSST_CONCR_COL_R      = -108  # RC rectangular column
+I_BSST_CONCR_BEAM_RECT  = -3    # RC rectangular beam
+
+# IRobotBarSectionConcreteDataValue — used with data.Concrete.SetValue / GetValue
+I_BSCDV_COL_H        = 0   # column height (m)
+I_BSCDV_COL_B        = 1   # column width  (m)
+I_BSCDV_BEAM_RECT_H  = 0   # beam height   (m)
+I_BSCDV_BEAM_RECT_B  = 1   # beam width    (m)
+
+# IRobotBarSectionNonstdValue — dimension index for SetValue/GetValue
+# Index 0 = H (height), 1 = B (width), 2 = TF (flange), 3 = TW (web)
+# Same index layout for RECT, BOX, I, T, C shapes.
+# TUBE: 0 = outer diameter D, 1 = wall thickness T.
+I_BSNDV_H  = 0   # height (all solid/hollow shapes)
+I_BSNDV_B  = 1   # width  (all solid/hollow shapes)
+I_BSNDV_TF = 2   # flange thickness  (box, I, T, C)
+I_BSNDV_TW = 3   # web thickness     (box, I, T, C)
+I_BSNDV_D  = 0   # outer diameter    (tube — same slot as H)
+I_BSNDV_T  = 1   # wall thickness    (tube — same slot as B)
+
+# IRobotObjectStructuralType (typelib confirmed)
+I_OST_UNDEFINED = 0   # default / shell
+I_OST_BEAM      = 1
+I_OST_COLUMN    = 2
+I_OST_SLAB      = 4   # horizontal slab
+I_OST_WALL      = 5   # vertical wall
+
+PANEL_KIND_TO_OST: dict[str, int] = {
+    "slab":  I_OST_SLAB,
+    "wall":  I_OST_WALL,
+    "shell": I_OST_UNDEFINED,
+}
+PANEL_OST_TO_KIND: dict[int, str] = {
+    I_OST_UNDEFINED: "shell",
+    I_OST_BEAM:      "beam",
+    I_OST_COLUMN:    "column",
+    I_OST_SLAB:      "slab",
+    I_OST_WALL:      "wall",
+}
 
 # IRobotMaterialType
 I_MT_STEEL     = 1
@@ -189,6 +255,42 @@ MATERIAL_TYPES: dict[str, int] = {
 
 # Self-weight direction values
 I_SWRV_Z  = 2  # I_SWRV_GX=0, I_SWRV_GY=1, I_SWRV_GZ=2
+
+# IRobotStructuralAxisGridType (from typelib Robot 12.5)
+I_SAGT_CARTESIAN  = 1
+I_SAGT_CYLINDRICAL = 2
+I_SAGT_ARBITRARY  = 3
+
+# IRobotStructuralAxisLabelType (from typelib Robot 12.5)
+I_SALT_123    = 1   # numeric labels: 1, 2, 3 …
+I_SALT_ABC    = 2   # alphabetic labels: A, B, C …
+I_SALT_VALUE  = 3   # show numeric position value
+I_SALT_DEFINE = 4   # user-defined labels via SetAxisLabel()
+I_SALT_VARIOUS = 5
+
+# IRobotViewProjection (from typelib Robot 12.5)
+I_VP_XY     = 0   # plan — top (XY plane)
+I_VP_XZ     = 1   # front elevation (XZ plane)
+I_VP_YZ     = 2   # side elevation (YZ plane)
+I_VP_3DXYZ  = 3   # 3D axonometric
+I_VP_XY_3D  = 4   # XY + 3D
+I_VP_YZ_3D  = 5   # YZ + 3D
+I_VP_XZ_3D  = 6   # XZ + 3D
+
+VIEW_PROJECTIONS: dict[str, int] = {
+    "3d":    I_VP_3DXYZ,
+    "xy":    I_VP_XY,
+    "plan":  I_VP_XY,
+    "top":   I_VP_XY,
+    "xz":    I_VP_XZ,
+    "front": I_VP_XZ,
+    "yz":    I_VP_YZ,
+    "side":  I_VP_YZ,
+    "right": I_VP_YZ,
+}
+
+# IRobotViewType
+I_VT_STANDARD = 1
 
 # ──────────────────────────────────────────────────────────────────
 # RobotClient — singleton
@@ -242,19 +344,23 @@ class RobotClient:
         robot_running = _is_robot_running()
 
         if robot_running:
-            # Dispatch() attaches to the running single-instance server.
-            try:
-                self._app = win32.Dispatch("Robot.Application")
-                _ = self._app.Visible   # verify alive
-                return self._app
-            except Exception:
-                self._app = None
-            # Fallback: try the ROT (may work on some Robot builds).
-            try:
-                self._app = win32.GetActiveObject("Robot.Application")
-                return self._app
-            except Exception:
-                self._app = None
+            # Robot.exe is in the process list — attach, never create a new instance.
+            # Try GetActiveObject first (ROT-based), then Dispatch (class-factory attach).
+            for _attach in (
+                lambda: win32.GetActiveObject("Robot.Application"),
+                lambda: win32.Dispatch("Robot.Application"),
+            ):
+                try:
+                    self._app = _attach()
+                    _ = self._app.Visible   # verify alive
+                    return self._app
+                except Exception:
+                    self._app = None
+            # Robot is running but not yet reachable via COM — do NOT create a 2nd instance.
+            raise RuntimeError(
+                "Robot.exe is running but not reachable via COM. "
+                "Wait for Robot to finish starting, then retry."
+            )
 
         if not launch:
             raise RuntimeError(
@@ -262,7 +368,7 @@ class RobotClient:
                 "or open Robot manually and try again."
             )
 
-        # Start Robot and wait up to 60 s for the project object to be ready.
+        # Robot is not running — start it via COM class-factory (single-instance server).
         self._app = win32.Dispatch("Robot.Application")
         self._app.Visible = True
         self._app.Interactive = True
